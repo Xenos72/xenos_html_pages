@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 Olympics Hockey Schedule</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+            padding: 16px;
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        
+        h1 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        
+        .subtitle {
+            color: #999;
+            font-size: 14px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            flex: 1;
+            min-width: 90px;
+            padding: 12px 16px;
+            background: #333;
+            color: #fff;
+            border: 2px solid #555;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        button.active {
+            background: #0066cc;
+            border-color: #0066cc;
+        }
+        
+        button:hover {
+            background: #444;
+        }
+        
+        button.active:hover {
+            background: #0052a3;
+        }
+        
+        .edit-btn {
+            width: 100%;
+            margin-bottom: 16px;
+            background: #2d5016;
+            border-color: #4a7c2a;
+        }
+        
+        .edit-btn.editing {
+            background: #7c2a16;
+            border-color: #a33a20;
+        }
+        
+        .edit-btn:hover {
+            background: #3d6820;
+        }
+        
+        .edit-btn.editing:hover {
+            background: #8c3a20;
+        }
+        
+        .date-section {
+            margin-bottom: 24px;
+        }
+        
+        .date-header {
+            background: #2a2a2a;
+            padding: 12px;
+            border-radius: 8px 8px 0 0;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .game {
+            background: #252525;
+            padding: 14px;
+            border-left: 4px solid #444;
+            margin-bottom: 2px;
+        }
+        
+        .game:last-child {
+            border-radius: 0 0 8px 8px;
+        }
+        
+        .game.canada {
+            background: #3d0e0e;
+            border-left: 4px solid #d4af37;
+            box-shadow: 0 0 0 2px #d4af37;
+        }
+        
+        .game-time {
+            color: #999;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+        
+        .countdown {
+            color: #4a9eff;
+            font-size: 12px;
+            margin-left: 8px;
+        }
+        
+        .game-matchup {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .game-details {
+            color: #888;
+            font-size: 13px;
+        }
+        
+        .tbd-controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .tbd-controls select {
+            flex: 1;
+            padding: 8px;
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .tbd-controls button {
+            flex: 0 0 auto;
+            min-width: 60px;
+            padding: 8px 12px;
+            font-size: 12px;
+        }
+        
+        .no-games {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🏒 Milano Cortina 2026</h1>
+        <div class="subtitle">Men's Hockey Tournament</div>
+    </div>
+    
+    <button class="edit-btn" id="editBtn" onclick="toggleEditMode()">
+        ✏️ Edit TBD Games
+    </button>
+    
+    <div class="controls">
+        <button class="active" onclick="setView('today')">Today</button>
+        <button onclick="setView('3day')">3-Day Window</button>
+        <button onclick="setView('full')">Full Schedule</button>
+    </div>
+    
+    <div id="schedule"></div>
+    
+    <script>
+        const TEAMS = [
+            "Canada", "USA", "Finland", "Sweden", "Czechia", "Switzerland",
+            "Germany", "Slovakia", "Latvia", "Denmark", "France", "Italy"
+        ].sort();
+        
+        const SCHEDULE = [
+            // February 11
+            { date: "2026-02-11", time: "10:40", team1: "Slovakia", team2: "Finland", group: "Group B", venue: "Santagiulia" },
+            { date: "2026-02-11", time: "15:10", team1: "Sweden", team2: "Italy", group: "Group B", venue: "Santagiulia" },
+            
+            // February 12
+            { date: "2026-02-12", time: "06:10", team1: "Switzerland", team2: "France", group: "Group A", venue: "Santagiulia" },
+            { date: "2026-02-12", time: "10:40", team1: "Czechia", team2: "Canada", group: "Group A", venue: "Santagiulia" },
+            { date: "2026-02-12", time: "15:10", team1: "Latvia", team2: "USA", group: "Group C", venue: "Santagiulia" },
+            { date: "2026-02-12", time: "15:10", team1: "Germany", team2: "Denmark", group: "Group C", venue: "Rho" },
+            
+            // February 13
+            { date: "2026-02-13", time: "06:10", team1: "Finland", team2: "Sweden", group: "Group B", venue: "Santagiulia" },
+            { date: "2026-02-13", time: "06:10", team1: "Italy", team2: "Slovakia", group: "Group B", venue: "Rho" },
+            { date: "2026-02-13", time: "10:40", team1: "France", team2: "Czechia", group: "Group A", venue: "Santagiulia" },
+            { date: "2026-02-13", time: "15:10", team1: "Canada", team2: "Switzerland", group: "Group A", venue: "Santagiulia" },
+            
+            // February 14
+            { date: "2026-02-14", time: "06:10", team1: "Sweden", team2: "Slovakia", group: "Group B", venue: "Santagiulia" },
+            { date: "2026-02-14", time: "06:10", team1: "Germany", team2: "Latvia", group: "Group C", venue: "Rho" },
+            { date: "2026-02-14", time: "10:40", team1: "Finland", team2: "Italy", group: "Group B", venue: "Santagiulia" },
+            { date: "2026-02-14", time: "15:10", team1: "USA", team2: "Denmark", group: "Group C", venue: "Santagiulia" },
+            
+            // February 15
+            { date: "2026-02-15", time: "06:10", team1: "Switzerland", team2: "Czechia", group: "Group A", venue: "Santagiulia" },
+            { date: "2026-02-15", time: "10:40", team1: "Canada", team2: "France", group: "Group A", venue: "Santagiulia" },
+            { date: "2026-02-15", time: "15:10", team1: "USA", team2: "Germany", group: "Group C", venue: "Santagiulia" },
+            { date: "2026-02-15", time: "15:10", team1: "Denmark", team2: "Latvia", group: "Group C", venue: "Rho" },
+            
+            // February 17 - Qualification Playoffs
+            { date: "2026-02-17", time: "06:10", team1: "TBD", team2: "TBD", group: "Qualification Playoff", venue: "Santagiulia" },
+            { date: "2026-02-17", time: "06:10", team1: "TBD", team2: "TBD", group: "Qualification Playoff", venue: "Rho" },
+            { date: "2026-02-17", time: "10:40", team1: "TBD", team2: "TBD", group: "Qualification Playoff", venue: "Santagiulia" },
+            { date: "2026-02-17", time: "15:10", team1: "TBD", team2: "TBD", group: "Qualification Playoff", venue: "Santagiulia" },
+            
+            // February 18 - Quarterfinals
+            { date: "2026-02-18", time: "06:10", team1: "TBD", team2: "TBD", group: "Quarterfinal", venue: "Santagiulia" },
+            { date: "2026-02-18", time: "08:10", team1: "TBD", team2: "TBD", group: "Quarterfinal", venue: "Rho" },
+            { date: "2026-02-18", time: "10:40", team1: "TBD", team2: "TBD", group: "Quarterfinal", venue: "Santagiulia" },
+            { date: "2026-02-18", time: "15:10", team1: "TBD", team2: "TBD", group: "Quarterfinal", venue: "Santagiulia" },
+            
+            // February 20 - Semifinals
+            { date: "2026-02-20", time: "10:40", team1: "TBD", team2: "TBD", group: "Semifinal", venue: "Santagiulia" },
+            { date: "2026-02-20", time: "15:10", team1: "TBD", team2: "TBD", group: "Semifinal", venue: "Santagiulia" },
+            
+            // February 21 - Bronze Medal
+            { date: "2026-02-21", time: "14:40", team1: "TBD", team2: "TBD", group: "Bronze Medal", venue: "Santagiulia" },
+            
+            // February 22 - Gold Medal
+            { date: "2026-02-22", time: "08:10", team1: "TBD", team2: "TBD", group: "Gold Medal", venue: "Santagiulia" }
+        ];
+        
+        let currentView = 'today';
+        let editMode = false;
+        let scheduleData = loadSchedule();
+        
+        function loadSchedule() {
+            const saved = localStorage.getItem('olympicsSchedule');
+            if (saved) {
+                return JSON.parse(saved);
+            }
+            return SCHEDULE;
+        }
+        
+        function saveSchedule() {
+            localStorage.setItem('olympicsSchedule', JSON.stringify(scheduleData));
+        }
+        
+        function toggleEditMode() {
+            editMode = !editMode;
+            const btn = document.getElementById('editBtn');
+            btn.textContent = editMode ? '✅ Done Editing' : '✏️ Edit TBD Games';
+            btn.classList.toggle('editing');
+            renderSchedule();
+        }
+        
+        function setView(view) {
+            currentView = view;
+            document.querySelectorAll('.controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            renderSchedule();
+        }
+        
+        function updateGame(index, team1, team2) {
+            scheduleData[index].team1 = team1;
+            scheduleData[index].team2 = team2;
+            saveSchedule();
+            renderSchedule();
+        }
+        
+        function formatTime(time) {
+            const [hours, minutes] = time.split(':');
+            const hour = parseInt(hours);
+            const ampm = hour >= 12 ? 'PM' : 'AM';
+            const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+            return `${displayHour}:${minutes} ${ampm} EST`;
+        }
+        
+        function getCountdown(dateStr, timeStr) {
+            const [year, month, day] = dateStr.split('-');
+            const [hours, minutes] = timeStr.split(':');
+            const gameDate = new Date(year, month - 1, day, hours, minutes);
+            const now = new Date();
+            const diff = gameDate - now;
+            
+            if (diff < 0) return null;
+            
+            const hours_left = Math.floor(diff / (1000 * 60 * 60));
+            const minutes_left = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            
+            if (hours_left < 24) {
+                if (hours_left === 0) {
+                    return `in ${minutes_left}m`;
+                }
+                return `in ${hours_left}h ${minutes_left}m`;
+            }
+            
+            return null;
+        }
+        
+        function formatDate(dateStr) {
+            const [year, month, day] = dateStr.split('-');
+            const date = new Date(year, month - 1, day);
+            const options = { weekday: 'long', month: 'long', day: 'numeric' };
+            return date.toLocaleDateString('en-US', options);
+        }
+        
+        function getFilteredGames() {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const todayStr = today.toISOString().split('T')[0];
+            
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowStr = tomorrow.toISOString().split('T')[0];
+            
+            const dayAfter = new Date(today);
+            dayAfter.setDate(dayAfter.getDate() + 2);
+            const dayAfterStr = dayAfter.toISOString().split('T')[0];
+            
+            if (currentView === 'today') {
+                const todaysGames = scheduleData.filter(game => game.date === todayStr);
+                // If no games today, show the first day that has games
+                if (todaysGames.length === 0) {
+                    const uniqueDates = [...new Set(scheduleData.map(game => game.date))].sort();
+                    const firstGameDate = uniqueDates.find(date => date >= todayStr) || uniqueDates[0];
+                    return scheduleData.filter(game => game.date === firstGameDate);
+                }
+                return todaysGames;
+            } else if (currentView === '3day') {
+                const threeDayGames = scheduleData.filter(game => 
+                    game.date === todayStr || game.date === tomorrowStr || game.date === dayAfterStr
+                );
+                // If no games in current 3-day window, show first 3 days with games
+                if (threeDayGames.length === 0) {
+                    const uniqueDates = [...new Set(scheduleData.map(game => game.date))].sort();
+                    const futureDates = uniqueDates.filter(date => date >= todayStr);
+                    const firstThreeDates = futureDates.length > 0 ? futureDates.slice(0, 3) : uniqueDates.slice(0, 3);
+                    return scheduleData.filter(game => firstThreeDates.includes(game.date));
+                }
+                return threeDayGames;
+            }
+            return scheduleData;
+        }
+        
+        function isCanadaGame(game) {
+            return game.team1 === 'Canada' || game.team2 === 'Canada';
+        }
+        
+        function renderSchedule() {
+            const container = document.getElementById('schedule');
+            const games = getFilteredGames();
+            
+            if (games.length === 0) {
+                container.innerHTML = '<div class="no-games">No games scheduled for this view</div>';
+                return;
+            }
+            
+            const gamesByDate = {};
+            games.forEach((game, index) => {
+                if (!gamesByDate[game.date]) {
+                    gamesByDate[game.date] = [];
+                }
+                gamesByDate[game.date].push({ ...game, originalIndex: scheduleData.indexOf(game) });
+            });
+            
+            let html = '';
+            Object.keys(gamesByDate).sort().forEach(date => {
+                html += `<div class="date-section">`;
+                html += `<div class="date-header">${formatDate(date)}</div>`;
+                
+                gamesByDate[date].forEach(game => {
+                    const isCanada = isCanadaGame(game);
+                    const isTBD = game.team1 === 'TBD' || game.team2 === 'TBD';
+                    const showCountdown = currentView === 'today';
+                    const countdown = showCountdown ? getCountdown(game.date, game.time) : null;
+                    
+                    html += `<div class="game ${isCanada ? 'canada' : ''}">`;
+                    html += `<div class="game-time">`;
+                    html += formatTime(game.time);
+                    if (countdown) {
+                        html += `<span class="countdown">${countdown}</span>`;
+                    }
+                    html += `</div>`;
+                    html += `<div class="game-matchup">${game.team1} vs ${game.team2}</div>`;
+                    html += `<div class="game-details">${game.group} • ${game.venue} Arena</div>`;
+                    
+                    if (editMode && isTBD) {
+                        html += `<div class="tbd-controls">`;
+                        html += `<select id="team1_${game.originalIndex}">`;
+                        html += `<option value="TBD">TBD</option>`;
+                        TEAMS.forEach(team => {
+                            html += `<option value="${team}" ${game.team1 === team ? 'selected' : ''}>${team}</option>`;
+                        });
+                        html += `</select>`;
+                        html += `<select id="team2_${game.originalIndex}">`;
+                        html += `<option value="TBD">TBD</option>`;
+                        TEAMS.forEach(team => {
+                            html += `<option value="${team}" ${game.team2 === team ? 'selected' : ''}>${team}</option>`;
+                        });
+                        html += `</select>`;
+                        html += `<button onclick="updateGameFromUI(${game.originalIndex})">Save</button>`;
+                        html += `</div>`;
+                    }
+                    
+                    html += `</div>`;
+                });
+                
+                html += `</div>`;
+            });
+            
+            container.innerHTML = html;
+        }
+        
+        function updateGameFromUI(index) {
+            const team1 = document.getElementById(`team1_${index}`).value;
+            const team2 = document.getElementById(`team2_${index}`).value;
+            updateGame(index, team1, team2);
+        }
+        
+        // Initial render
+        renderSchedule();
+        
+        // Update countdown every minute
+        setInterval(() => {
+            if (currentView === 'today') {
+                renderSchedule();
+            }
+        }, 60000);
+    </script>
+</body>
+</html>

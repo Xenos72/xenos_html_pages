@@ -14,7 +14,7 @@
         <header class="flex flex-col md:flex-row justify-between items-center bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700">
             <div>
                 <h1 class="text-3xl font-bold tracking-tight text-white">Playoff Pace Tracker</h1>
-                <p class="text-slate-400 mt-1">Analyzing current points percentage vs. playoff threshold</p>
+                <p class="text-slate-400 mt-1">Analyzing current points percentage vs. dynamic playoff threshold</p>
             </div>
             <div class="mt-4 md:mt-0">
                 <label for="team-select" class="sr-only">Select Team</label>
@@ -32,19 +32,19 @@
                 <div class="bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 flex flex-col items-center">
                     <h2 class="text-xl font-semibold mb-2">Season Pace</h2>
                     <p class="text-slate-400 text-sm mb-4">Points Percentage (82 Games)</p>
-                    <div class="relative w-full max-w-[300px] aspect-[2/1]">
+                    <div class="relative w-full max-w-[320px] aspect-[2/1]">
                         <canvas id="season-dial"></canvas>
                     </div>
-                    <div id="season-stats" class="mt-6 text-center text-lg font-medium"></div>
+                    <div id="season-stats" class="mt-6 text-center text-lg font-medium leading-relaxed"></div>
                 </div>
 
                 <div class="bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 flex flex-col items-center">
                     <h2 class="text-xl font-semibold mb-2">Last 10 Games Pace</h2>
                     <p class="text-slate-400 text-sm mb-4">Points Percentage (L10)</p>
-                    <div class="relative w-full max-w-[300px] aspect-[2/1]">
+                    <div class="relative w-full max-w-[320px] aspect-[2/1]">
                         <canvas id="l10-dial"></canvas>
                     </div>
-                    <div id="l10-stats" class="mt-6 text-center text-lg font-medium"></div>
+                    <div id="l10-stats" class="mt-6 text-center text-lg font-medium leading-relaxed"></div>
                 </div>
             </div>
 
@@ -69,16 +69,20 @@
         
         const DEFAULT_TEAM = 'MTL';
         const STATIC_THRESHOLD_PCT = 57.9; // 95 points in 82 games
+        const DIAL_MIN = 15; // Zoomed in range minimum
+        const DIAL_MAX = 85; // Zoomed in range maximum
         
         let allStandings = [];
         let chartSeasonInstance = null;
         let chartL10Instance = null;
 
-        // --- Custom Chart.js Plugin for the Gauge Needle ---
+        // --- Custom Chart.js Plugins ---
+        
+        // Plugin to draw the Needle
         const gaugeNeedlePlugin = {
             id: 'gaugeNeedle',
             afterDatasetDraw(chart, args, options) {
-                const { ctx, data } = chart;
+                const { ctx } = chart;
                 const value = chart.config.options.plugins.gaugeNeedle.value;
                 const meta = chart.getDatasetMeta(0);
                 
@@ -89,10 +93,12 @@
                 const cy = arc.y;
                 const outerRadius = arc.outerRadius;
                 const innerRadius = arc.innerRadius;
-                const radius = innerRadius + (outerRadius - innerRadius) / 2;
 
-                const clampedValue = Math.max(0, Math.min(100, value));
-                const angle = Math.PI + (clampedValue / 100) * Math.PI;
+                // Map value to our custom zoomed scale (15 to 85)
+                const range = DIAL_MAX - DIAL_MIN;
+                const clampedValue = Math.max(DIAL_MIN, Math.min(DIAL_MAX, value));
+                const pctOfRange = (clampedValue - DIAL_MIN) / range;
+                const angle = Math.PI + (pctOfRange * Math.PI);
 
                 const xLine = cx + Math.cos(angle) * (outerRadius + 5);
                 const yLine = cy + Math.sin(angle) * (outerRadius + 5);
@@ -113,20 +119,58 @@
             }
         };
 
-        Chart.register(gaugeNeedlePlugin);
+        // Plugin to draw the Threshold Label on the demarcation line
+        const thresholdLabelPlugin = {
+            id: 'thresholdLabel',
+            afterDraw(chart) {
+                const { ctx } = chart;
+                const threshold = chart.config.options.plugins.thresholdLabel.value;
+                const meta = chart.getDatasetMeta(0);
+                if (!meta.data.length) return;
+                
+                const range = DIAL_MAX - DIAL_MIN;
+                const clampedThreshold = Math.max(DIAL_MIN, Math.min(DIAL_MAX, threshold));
+                const pctOfRange = (clampedThreshold - DIAL_MIN) / range;
+                const angle = Math.PI + (pctOfRange * Math.PI);
+                
+                const arc = meta.data[0];
+                const cx = arc.x;
+                const cy = arc.y;
+                const outerRadius = arc.outerRadius;
+                
+                // Position text slightly outside the arc
+                const textX = cx + Math.cos(angle) * (outerRadius + 22);
+                const textY = cy + Math.sin(angle) * (outerRadius + 22);
+                
+                ctx.save();
+                ctx.font = 'bold 13px sans-serif';
+                ctx.fillStyle = '#cbd5e1'; // text-slate-300
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`${threshold.toFixed(1)}%`, textX, textY);
+                
+                // Draw a small tick mark
+                ctx.beginPath();
+                ctx.moveTo(cx + Math.cos(angle) * outerRadius, cy + Math.sin(angle) * outerRadius);
+                ctx.lineTo(cx + Math.cos(angle) * (outerRadius + 8), cy + Math.sin(angle) * (outerRadius + 8));
+                ctx.strokeStyle = '#cbd5e1';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+        };
+
+        Chart.register(gaugeNeedlePlugin, thresholdLabelPlugin);
 
         // --- Initialization ---
         async function init() {
             try {
-                // Fetch standings using AllOrigins CORS proxy
                 const targetUrl = encodeURIComponent(API_STANDINGS_RAW);
                 const response = await fetch(`https://api.allorigins.win/get?url=${targetUrl}`);
-                
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 
                 const proxyData = await response.json();
-                
-                // AllOrigins wraps the actual data inside a 'contents' string, so we parse it here
                 const data = JSON.parse(proxyData.contents);
                 allStandings = data.standings;
 
@@ -169,26 +213,40 @@
                 statusMsg.style.display = 'none';
             }
 
+            // Calculations
             const teamPtPct = (teamStats.points / (gp * 2)) * 100;
+            const teamProjectedPoints = Math.round((teamPtPct / 100) * 164); // 82 games * 2 points
             
             const l10Points = (teamStats.l10Wins * 2) + teamStats.l10OtLosses;
             const l10Games = teamStats.l10Wins + teamStats.l10Losses + teamStats.l10OtLosses;
             const teamL10PtPct = l10Games > 0 ? (l10Points / (l10Games * 2)) * 100 : 0;
+            const l10ProjectedPoints = Math.round((teamL10PtPct / 100) * 164);
 
             let targetPtPct = STATIC_THRESHOLD_PCT;
             let targetLabel = "Historical Approximate Pace (95 pts / 57.9%)";
 
+            // Dynamic IN vs OUT threshold logic for games > 41
             if (gp > 41) {
-                const wc2Team = getSecondWildCard(teamStats.conferenceName);
-                if (wc2Team) {
-                    targetPtPct = (wc2Team.points / (wc2Team.gamesPlayed * 2)) * 100;
-                    targetLabel = `Pace of 2nd WC in ${teamStats.conferenceName} (${wc2Team.teamName.default} - ${targetPtPct.toFixed(1)}%)`;
+                const dynamicTarget = getDynamicThreshold(teamAbbrev, teamStats.conferenceName);
+                if (dynamicTarget && dynamicTarget.targetTeam) {
+                    targetPtPct = (dynamicTarget.targetTeam.points / (dynamicTarget.targetTeam.gamesPlayed * 2)) * 100;
+                    const action = dynamicTarget.type === 'IN' ? "Staying ahead of 1st Team Out" : "Catching lowest Playoff seed";
+                    targetLabel = `${action} (${dynamicTarget.targetTeam.teamName.default} - ${targetPtPct.toFixed(1)}%)`;
                 }
             }
 
-            document.getElementById('target-info').innerHTML = `Currently targeting: <strong>${targetLabel}</strong>`;
-            document.getElementById('season-stats').innerHTML = `Current Pace: <strong>${teamPtPct.toFixed(1)}%</strong><br><span class="text-sm text-slate-400">(${teamStats.points} pts in ${gp} GP)</span>`;
-            document.getElementById('l10-stats').innerHTML = `L10 Pace: <strong>${teamL10PtPct.toFixed(1)}%</strong><br><span class="text-sm text-slate-400">(${teamStats.l10Wins}-${teamStats.l10Losses}-${teamStats.l10OtLosses})</span>`;
+            // Update UI
+            document.getElementById('target-info').innerHTML = `Current Hurdle: <strong>${targetLabel}</strong>`;
+            
+            document.getElementById('season-stats').innerHTML = `
+                Current Pace: <strong class="text-xl">${teamPtPct.toFixed(1)}% (~${teamProjectedPoints} pts)</strong><br>
+                <span class="text-sm text-slate-400">Recorded: ${teamStats.points} pts in ${gp} GP</span>
+            `;
+            
+            document.getElementById('l10-stats').innerHTML = `
+                L10 Pace: <strong class="text-xl">${teamL10PtPct.toFixed(1)}% (~${l10ProjectedPoints} pts)</strong><br>
+                <span class="text-sm text-slate-400">Recorded: ${teamStats.l10Wins}-${teamStats.l10Losses}-${teamStats.l10OtLosses} in L10</span>
+            `;
 
             renderDial('season-dial', teamPtPct, targetPtPct, chartSeasonInstance, (chart) => chartSeasonInstance = chart);
             renderDial('l10-dial', teamL10PtPct, targetPtPct, chartL10Instance, (chart) => chartL10Instance = chart);
@@ -200,7 +258,8 @@
             }
         }
 
-        function getSecondWildCard(conferenceName) {
+        // Calculates whether the selected team is IN or OUT and returns the exact team they need to worry about
+        function getDynamicThreshold(teamAbbrev, conferenceName) {
             const confTeams = allStandings.filter(t => t.conferenceName === conferenceName);
             const divisions = {};
             
@@ -209,20 +268,44 @@
                 divisions[t.divisionName].push(t);
             });
 
-            const wildCardContenders = [];
+            const playoffTeams = [];
+            const nonPlayoffTeams = [];
 
+            // API pre-sorts by league tiebreakers. Top 3 in each div make it automatically.
             for (const div in divisions) {
                 const divTeams = divisions[div];
-                wildCardContenders.push(...divTeams.slice(3));
+                playoffTeams.push(...divTeams.slice(0, 3));
+                nonPlayoffTeams.push(...divTeams.slice(3));
             }
 
-            wildCardContenders.sort((a, b) => {
+            // Sort non-playoff teams by points percentage to find wildcards
+            nonPlayoffTeams.sort((a, b) => {
                 const ptA = a.points / (a.gamesPlayed * 2);
                 const ptB = b.points / (b.gamesPlayed * 2);
-                return ptB - ptA;
+                return ptB - ptA; 
             });
 
-            return wildCardContenders[1]; 
+            // Add top 2 remaining to playoff pool (Wild Cards)
+            playoffTeams.push(...nonPlayoffTeams.slice(0, 2));
+            
+            // The team just missing the playoffs
+            const firstTeamOut = nonPlayoffTeams[2];
+
+            const isPlayoffPosition = playoffTeams.some(t => t.teamAbbrev.default === teamAbbrev);
+
+            if (isPlayoffPosition) {
+                // Team is IN. Must stay ahead of the first team out.
+                return { type: 'IN', targetTeam: firstTeamOut };
+            } else {
+                // Team is OUT. Must catch the weakest current playoff team.
+                playoffTeams.sort((a, b) => {
+                    const ptA = a.points / (a.gamesPlayed * 2);
+                    const ptB = b.points / (b.gamesPlayed * 2);
+                    return ptA - ptB; 
+                });
+                const weakestPlayoffTeam = playoffTeams[0];
+                return { type: 'OUT', targetTeam: weakestPlayoffTeam };
+            }
         }
 
         async function loadNextOpponent(teamAbbrev) {
@@ -230,10 +313,8 @@
             container.innerHTML = '<p class="text-slate-400">Fetching schedule...</p>';
 
             try {
-                // Fetch schedule using AllOrigins CORS proxy
                 const targetUrl = encodeURIComponent(`${API_SCHEDULE_BASE_RAW}${teamAbbrev}/now`);
                 const response = await fetch(`https://api.allorigins.win/get?url=${targetUrl}`);
-                
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 
                 const proxyData = await response.json();
@@ -296,14 +377,20 @@
                 chartInstance.destroy();
             }
 
-            const safeThreshold = Math.max(0, Math.min(100, threshold));
+            // Map values to our zoomed 15 to 85 scale
+            const range = DIAL_MAX - DIAL_MIN;
+            const safeThreshold = Math.max(DIAL_MIN, Math.min(DIAL_MAX, threshold));
+            
+            // Calculate how much of the 180 degrees belongs to the red vs green zones
+            const redSegmentSize = safeThreshold - DIAL_MIN;
+            const greenSegmentSize = DIAL_MAX - safeThreshold;
             
             const newChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
                     labels: ['Miss Playoffs', 'Make Playoffs'],
                     datasets: [{
-                        data: [safeThreshold, 100 - safeThreshold],
+                        data: [redSegmentSize, greenSegmentSize],
                         backgroundColor: [
                             '#ef4444', 
                             '#22c55e'  
@@ -316,13 +403,20 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: {
+                        padding: {
+                            left: 30,
+                            right: 30,
+                            top: 20,
+                            bottom: 10
+                        }
+                    },
                     cutout: '75%', 
                     plugins: {
                         legend: { display: false },
                         tooltip: { enabled: false },
-                        gaugeNeedle: {
-                            value: value 
-                        }
+                        gaugeNeedle: { value: value },
+                        thresholdLabel: { value: threshold }
                     }
                 }
             });

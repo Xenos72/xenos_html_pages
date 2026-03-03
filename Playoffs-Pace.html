@@ -4,8 +4,303 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NHL Playoff Pace Tracker</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script>
+        // --- Configuration & State ---
+        // Using a CORS proxy to bypass browser restrictions on the NHL API
+        const CORS_PROXY = 'https://corsproxy.io/?';
+        const API_STANDINGS_RAW = 'https://api-web.nhle.com/v1/standings/now';
+        const API_SCHEDULE_BASE_RAW = 'https://api-web.nhle.com/v1/club-schedule-season/';
+        
+        const DEFAULT_TEAM = 'MTL';
+        const STATIC_THRESHOLD_PCT = 57.9; // 95 points in 82 games
+        
+        let allStandings = [];
+        let chartSeasonInstance = null;
+        let chartL10Instance = null;
+
+        // --- Custom Chart.js Plugin for the Gauge Needle ---
+        const gaugeNeedlePlugin = {
+            id: 'gaugeNeedle',
+            afterDatasetDraw(chart, args, options) {
+                const { ctx, data } = chart;
+                const value = chart.config.options.plugins.gaugeNeedle.value;
+                const meta = chart.getDatasetMeta(0);
+                
+                if (!meta.data.length) return;
+
+                const arc = meta.data[0];
+                const cx = arc.x;
+                const cy = arc.y;
+                const outerRadius = arc.outerRadius;
+                const innerRadius = arc.innerRadius;
+                const radius = innerRadius + (outerRadius - innerRadius) / 2;
+
+                const clampedValue = Math.max(0, Math.min(100, value));
+                const angle = Math.PI + (clampedValue / 100) * Math.PI;
+
+                const xLine = cx + Math.cos(angle) * (outerRadius + 5);
+                const yLine = cy + Math.sin(angle) * (outerRadius + 5);
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(xLine, yLine);
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = '#ffffff'; 
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+                ctx.restore();
+            }
+        };
+
+        Chart.register(gaugeNeedlePlugin);
+
+        // --- Initialization ---
+        async function init() {
+            try {
+                // Fetch standings through the CORS proxy
+                const targetUrl = encodeURIComponent(API_STANDINGS_RAW);
+                const response = await fetch(CORS_PROXY + targetUrl);
+                
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const data = await response.json();
+                allStandings = data.standings;
+
+                populateDropdown(allStandings);
+                
+                document.getElementById('team-select').addEventListener('change', (e) => {
+                    loadTeamDashboard(e.target.value);
+                });
+
+                loadTeamDashboard(DEFAULT_TEAM);
+
+            } catch (error) {
+                console.error("Failed to load standings data:", error);
+                showStatus("Error loading NHL data. The request was blocked or failed to fetch.", "error");
+            }
+        }
+
+        // --- Core Logic Functions ---
+        
+        async function loadTeamDashboard(teamAbbrev) {
+            const teamStats = allStandings.find(t => t.teamAbbrev.default === teamAbbrev);
+            if (!teamStats) return;
+
+            const gp = teamStats.gamesPlayed;
+            const dashboard = document.getElementById('dashboard');
+            const statusMsg = document.getElementById('status-message');
+
+            if (gp < 10) {
+                dashboard.style.display = 'none';
+                showStatus("Not enough season data yet (fewer than 10 games played).", "warning");
+                return;
+            }
+
+            if (gp === 82) {
+                dashboard.style.display = 'block';
+                showStatus("Season Over", "info");
+            } else {
+                dashboard.style.display = 'block';
+                statusMsg.style.display = 'none';
+            }
+
+            const teamPtPct = (teamStats.points / (gp * 2)) * 100;
+            
+            const l10Points = (teamStats.l10Wins * 2) + teamStats.l10OtLosses;
+            const l10Games = teamStats.l10Wins + teamStats.l10Losses + teamStats.l10OtLosses;
+            const teamL10PtPct = l10Games > 0 ? (l10Points / (l10Games * 2)) * 100 : 0;
+
+            let targetPtPct = STATIC_THRESHOLD_PCT;
+            let targetLabel = "Historical Approximate Pace (95 pts / 57.9%)";
+
+            if (gp > 41) {
+                const wc2Team = getSecondWildCard(teamStats.conferenceName);
+                if (wc2Team) {
+                    targetPtPct = (wc2Team.points / (wc2Team.gamesPlayed * 2)) * 100;
+                    targetLabel = `Pace of 2nd WC in ${teamStats.conferenceName} (${wc2Team.teamName.default} - ${targetPtPct.toFixed(1)}%)`;
+                }
+            }
+
+            document.getElementById('target-info').innerHTML = `Currently targeting: <strong>${targetLabel}</strong>`;
+            document.getElementById('season-stats').innerHTML = `Current Pace: <strong>${teamPtPct.toFixed(1)}%</strong><br><span class="text-sm text-slate-400">(${teamStats.points} pts in ${gp} GP)</span>`;
+            document.getElementById('l10-stats').innerHTML = `L10 Pace: <strong>${teamL10PtPct.toFixed(1)}%</strong><br><span class="text-sm text-slate-400">(${teamStats.l10Wins}-${teamStats.l10Losses}-${teamStats.l10OtLosses})</span>`;
+
+            renderDial('season-dial', teamPtPct, targetPtPct, chartSeasonInstance, (chart) => chartSeasonInstance = chart);
+            renderDial('l10-dial', teamL10PtPct, targetPtPct, chartL10Instance, (chart) => chartL10Instance = chart);
+
+            if (gp < 82) {
+                loadNextOpponent(teamAbbrev);
+            } else {
+                document.getElementById('opponent-details').innerHTML = `<p class="text-slate-400">Regular season completed. No upcoming regular season opponents.</p>`;
+            }
+        }
+
+        function getSecondWildCard(conferenceName) {
+            const confTeams = allStandings.filter(t => t.conferenceName === conferenceName);
+            const divisions = {};
+            
+            confTeams.forEach(t => {
+                if (!divisions[t.divisionName]) divisions[t.divisionName] = [];
+                divisions[t.divisionName].push(t);
+            });
+
+            const wildCardContenders = [];
+
+            for (const div in divisions) {
+                const divTeams = divisions[div];
+                wildCardContenders.push(...divTeams.slice(3));
+            }
+
+            wildCardContenders.sort((a, b) => {
+                const ptA = a.points / (a.gamesPlayed * 2);
+                const ptB = b.points / (b.gamesPlayed * 2);
+                return ptB - ptA;
+            });
+
+            return wildCardContenders[1]; 
+        }
+
+        async function loadNextOpponent(teamAbbrev) {
+            const container = document.getElementById('opponent-details');
+            container.innerHTML = '<p class="text-slate-400">Fetching schedule...</p>';
+
+            try {
+                // Fetch schedule through the CORS proxy
+                const targetUrl = encodeURIComponent(`${API_SCHEDULE_BASE_RAW}${teamAbbrev}/now`);
+                const response = await fetch(CORS_PROXY + targetUrl);
+                
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const data = await response.json();
+                
+                const nextGame = data.games.find(g => g.gameState !== 'FINAL' && g.gameState !== 'OFF');
+                
+                if (!nextGame) {
+                    container.innerHTML = '<p class="text-slate-400">No upcoming regular season games found.</p>';
+                    return;
+                }
+
+                const opponentAbbrev = nextGame.awayTeam.abbrev === teamAbbrev ? nextGame.homeTeam.abbrev : nextGame.awayTeam.abbrev;
+                const oppStats = allStandings.find(t => t.teamAbbrev.default === opponentAbbrev);
+                
+                if (!oppStats) {
+                    container.innerHTML = `<p class="text-red-400">Error finding opponent stats for ${opponentAbbrev}.</p>`;
+                    return;
+                }
+
+                const oppPtPct = (oppStats.points / (oppStats.gamesPlayed * 2)) * 100;
+                const oppL10Points = (oppStats.l10Wins * 2) + oppStats.l10OtLosses;
+                const oppL10Games = oppStats.l10Wins + oppStats.l10Losses + oppStats.l10OtLosses;
+                const oppL10PtPct = oppL10Games > 0 ? (oppL10Points / (oppL10Games * 2)) * 100 : 0;
+                
+                const gameDate = new Date(nextGame.startTimeUTC).toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const homeAwayStr = nextGame.homeTeam.abbrev === teamAbbrev ? `vs ${oppStats.teamName.default}` : `@ ${oppStats.teamName.default}`;
+
+                container.innerHTML = `
+                    <div class="flex flex-col md:flex-row justify-between md:items-center bg-slate-900 p-4 rounded-lg border border-slate-700">
+                        <div class="mb-4 md:mb-0">
+                            <span class="text-2xl font-bold">${homeAwayStr}</span><br>
+                            <span class="text-sm text-slate-400">${gameDate}</span>
+                        </div>
+                        <div class="flex gap-6">
+                            <div class="text-center">
+                                <span class="block text-xs text-slate-400 uppercase tracking-wider">Season Pace</span>
+                                <span class="font-semibold text-lg ${oppPtPct >= 50 ? 'text-green-400' : 'text-red-400'}">${oppPtPct.toFixed(1)}%</span>
+                            </div>
+                            <div class="text-center">
+                                <span class="block text-xs text-slate-400 uppercase tracking-wider">L10 Pace</span>
+                                <span class="font-semibold text-lg ${oppL10PtPct >= 50 ? 'text-green-400' : 'text-red-400'}">${oppL10PtPct.toFixed(1)}%</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+            } catch (error) {
+                console.error("Failed to load schedule:", error);
+                container.innerHTML = '<p class="text-red-400">Failed to load schedule data. Proxy or CORS issue.</p>';
+            }
+        }
+
+        // --- UI Rendering Helpers ---
+
+        function renderDial(canvasId, value, threshold, chartInstance, saveInstanceCallback) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const safeThreshold = Math.max(0, Math.min(100, threshold));
+            
+            const newChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Miss Playoffs', 'Make Playoffs'],
+                    datasets: [{
+                        data: [safeThreshold, 100 - safeThreshold],
+                        backgroundColor: [
+                            '#ef4444', 
+                            '#22c55e'  
+                        ],
+                        borderWidth: 0,
+                        circumference: 180,
+                        rotation: 270 
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '75%', 
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: false },
+                        gaugeNeedle: {
+                            value: value 
+                        }
+                    }
+                }
+            });
+
+            saveInstanceCallback(newChart);
+        }
+
+        function populateDropdown(standings) {
+            const select = document.getElementById('team-select');
+            select.innerHTML = '';
+            
+            const sortedTeams = [...standings].sort((a, b) => a.teamName.default.localeCompare(b.teamName.default));
+
+            sortedTeams.forEach(team => {
+                const option = document.createElement('option');
+                option.value = team.teamAbbrev.default;
+                option.textContent = team.teamName.default;
+                if (team.teamAbbrev.default === DEFAULT_TEAM) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+        }
+
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('status-message');
+            statusEl.textContent = message;
+            statusEl.style.display = 'block';
+            
+            statusEl.className = 'text-center p-4 rounded-lg font-semibold text-lg mb-6';
+            if (type === 'warning') statusEl.classList.add('bg-yellow-900', 'text-yellow-200');
+            else if (type === 'error') statusEl.classList.add('bg-red-900', 'text-red-200');
+            else if (type === 'info') statusEl.classList.add('bg-blue-900', 'text-blue-200');
+        }
+
+        // Start the app
+        init();
+    </script>
+
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased p-6">
 

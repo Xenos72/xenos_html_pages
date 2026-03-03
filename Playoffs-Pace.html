@@ -64,8 +64,6 @@
 
     <script>
         // --- Configuration & State ---
-        // Using a CORS proxy to bypass browser restrictions on the NHL API
-        const CORS_PROXY = 'https://corsproxy.io/?';
         const API_STANDINGS_RAW = 'https://api-web.nhle.com/v1/standings/now';
         const API_SCHEDULE_BASE_RAW = 'https://api-web.nhle.com/v1/club-schedule-season/';
         
@@ -120,13 +118,16 @@
         // --- Initialization ---
         async function init() {
             try {
-                // Fetch standings through the CORS proxy
+                // Fetch standings using AllOrigins CORS proxy
                 const targetUrl = encodeURIComponent(API_STANDINGS_RAW);
-                const response = await fetch(CORS_PROXY + targetUrl);
+                const response = await fetch(`https://api.allorigins.win/get?url=${targetUrl}`);
                 
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 
-                const data = await response.json();
+                const proxyData = await response.json();
+                
+                // AllOrigins wraps the actual data inside a 'contents' string, so we parse it here
+                const data = JSON.parse(proxyData.contents);
                 allStandings = data.standings;
 
                 populateDropdown(allStandings);
@@ -139,7 +140,8 @@
 
             } catch (error) {
                 console.error("Failed to load standings data:", error);
-                showStatus("Error loading NHL data. The request was blocked or failed to fetch.", "error");
+                showStatus("Error loading NHL data. The proxy request failed.", "error");
+                document.getElementById('team-select').innerHTML = '<option>Error loading</option>';
             }
         }
 
@@ -228,13 +230,14 @@
             container.innerHTML = '<p class="text-slate-400">Fetching schedule...</p>';
 
             try {
-                // Fetch schedule through the CORS proxy
+                // Fetch schedule using AllOrigins CORS proxy
                 const targetUrl = encodeURIComponent(`${API_SCHEDULE_BASE_RAW}${teamAbbrev}/now`);
-                const response = await fetch(CORS_PROXY + targetUrl);
+                const response = await fetch(`https://api.allorigins.win/get?url=${targetUrl}`);
                 
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 
-                const data = await response.json();
+                const proxyData = await response.json();
+                const data = JSON.parse(proxyData.contents);
                 
                 const nextGame = data.games.find(g => g.gameState !== 'FINAL' && g.gameState !== 'OFF');
                 
